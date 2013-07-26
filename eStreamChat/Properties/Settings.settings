@@ -3,7 +3,7 @@
   <Profiles />
   <Settings>
     <Setting Name="EnableFileTransfer" Type="System.Boolean" Scope="Application">
-      <Value Profile="(Default)">True</Value>
+      <Value Profile="(Default)">False</Value>
     </Setting>
     <Setting Name="SendFileAllowedExtensions" Type="System.String" Scope="Application">
       <Value Profile="(Default)">jpg,png,gif,mp3,zip,rar,txt</Value>
@@ -15,10 +15,10 @@
       <Value Profile="(Default)">True</Value>
     </Setting>
     <Setting Name="FlashMediaServer" Type="System.String" Scope="Application">
-      <Value Profile="(Default)">rtmp://</Value>
+      <Value Profile="(Default)">rtmp://67.43.3.201:1935/live</Value>
     </Setting>
     <Setting Name="FlashServerType" Type="System.String" Scope="Application">
-      <Value Profile="(Default)">fms</Value>
+      <Value Profile="(Default)">red5</Value>
     </Setting>
   </Settings>
 </SettingsFile>
