@@ -20,6 +20,14 @@ namespace eStreamChat.Interfaces
         public string Id { get; set; }
         public string DisplayName { get; set; }
         public string PhotoUrl { get; set; }
+
+        public int Gender { get; set; }
+        public string RealName { get; set; }
+        public int Age { get; set; }
+        public string Country { get; set; }
+        public string City { get; set; }
+        public string Occupation { get; set; }
+
         public string ThumbnailUrl { get; set; }
         public string ProfileUrl { get; set; }
     }

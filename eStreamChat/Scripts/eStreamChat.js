@@ -18,19 +18,20 @@ var messengerMode = false;
 var messengerTargetUserId = null;
 var messengerIsInitiator = false;
 var imUserCanSendMessages = false; // Prevents sending messages while the other IM user has not already joined the room
-var broadcastVideoWidth = 640;
-var broadcastVideoHeight = 480;
-var broadcastVideoWindowWidth = 320;
-var broadcastVideoWindowHeight = 240;
-var receiveVideoWindowWidth = 320;
-var receiveVideoWindowHeight = 240;
+var broadcastVideoWidth = 750;
+var broadcastVideoHeight = 600;
+var broadcastVideoWindowWidth = 250;
+var broadcastVideoWindowHeight = 200;
+var receiveVideoWindowWidth = 750;
+var receiveVideoWindowHeight = 600;
+var uba = new Uba();
 
 $(function () {
     if (typeof $('body').data('messengermode') == 'boolean')
         messengerMode = $('body').data('messengermode');
 
     if (messengerMode) {
-        messengerTargetUserId = $.urlParam('target');
+        messengerTargetUserId = decodeURIComponent($.urlParam('target'));
         messengerIsInitiator = $.urlParam('init') == "1";
     }
 
@@ -61,7 +62,7 @@ $(function () {
         $('#checkVideoBroadcast').click(function () {
             var alreadyOpened;
             if (messengerMode)
-                alreadyOpened = !$('#divCurrentUserVideo').is(':empty');
+                alreadyOpened = $('#divCurrentUserVideo').find('.broadcast-video').length;
             else
                 alreadyOpened = $('#divBroadcastVideo').length != 0;
             broadcastVideo(!alreadyOpened);
@@ -142,8 +143,8 @@ $(function () {
         if (!messengerMode)
             activePanel = $('#panel-room');
         else {
-            $('#panel-room').attr('id', 'panel-' + messengerTargetUserId);
-            activePanel = $('#panel-' + messengerTargetUserId);
+            $('#panel-room').attr('id', 'panel-' + messengerTargetUserId.replace(/\s/g, '_'));
+            activePanel = $('#panel-' + messengerTargetUserId.replace(/\s/g, '_'));
         }
 
         // Prepare the text formatting buttons
@@ -168,7 +169,7 @@ $(function () {
 
         // Attach the send button handlers
         $("#sendButton").click(function () {
-            sendMessage();
+            sendMessageClicked();
             return false;
         });
 
@@ -176,9 +177,17 @@ $(function () {
         $("#messageInput").keypress(function (event) {
             if (event.keyCode == 13) {
                 event.preventDefault();
-                sendMessage();
+                sendMessageClicked();
                 return false;
             }
+        });
+
+        // set up emoticons drop down
+        createEmoticonList($('.emoticons-container'));
+        var $emoticonSelect = $('.emoticons-container select')
+        $emoticonSelect.msDropDown({ visibleRows: '12' });
+        $('#emoticon-list_child').click(function () {
+            $messageInput.val($messageInput.val() + $emoticonSelect.val());
         });
 
         // Get chat room id from parameter
@@ -193,7 +202,8 @@ $(function () {
         // Configure alert popup for errors
         $.ajaxSetup({
             error: function (req, status, error) {
-                alert(status + ' - ' + req.responseText);
+                if (console && console.log)
+                    console.log(status + ' - ' + req.responseText);
             }
         });
 
@@ -245,11 +255,18 @@ function joinChatRoomSuccess(result) {
 
     // Save user token
     token = result.Token;
-    userId = result.UserId;
+    userId = result.userId;
     isAdmin = result.IsAdmin;
     fileTransferEnabled = result.FileTransferEnabled;
     videoChatEnabled = result.VideoChatEnabled;
     flashMediaServer = result.FlashMediaServer;
+
+    // translate messages automatically
+    if (result.CurrentUser.Gender == 2) {
+        var $translateMessagesContainer = $('.translate-messages-container');
+        $translateMessagesContainer.show();
+        $translateMessagesContainer.find('.input').attr('checked', 'checked');
+    }
 
     if (videoChatEnabled)
         $('#webcamdetector').append($('#webcamDetectorTemplate').jqote());
@@ -301,14 +318,71 @@ function joinChatRoomSuccess(result) {
         outputSystemMessage("Connected!");
         outputSystemMessage(result.ChatRoomTopic);
     } else {
+        // add messenger users
+        uba.chatRoomId = chatRoomId;
+        uba.userId = userId;
+        uba.target = messengerTargetUserId;
+        uba.token = token;
+
         if (messengerIsInitiator && location.hash != 'connected' /*onlineUsers[messengerTargetUserId] == undefined*/) {
+            // check if the other user is already connected (perhaps the man refreshed the page?)
+            if (onlineUsers[messengerTargetUserId] == null) {
             outputSystemMessage("Awaiting other user to accept the chat request...");
+        } else {
+                imUserCanSendMessages = true;
+
+                // load this user's profile
+                loadUserProfile(messengerTargetUserId);
+            }
+
+            // man has sent a request - show his current credits
+            uba.StartCreditsRemainingPoll();
         } else {
             outputSystemMessage("Connected!");
             imUserCanSendMessages = true;
             location.hash = 'connected';
+
+            // a lady has accepted a chat request
+            uba.UserConnected();
+
+            // load the user's profile
+            loadUserProfile(messengerTargetUserId);
         }
     }
+}
+
+function loadUserProfile(userId) {
+    var $memberProfile = $('.member-profile'), 
+        template =
+        '<div class="member-profile">' +
+            '<p>' +
+                '<strong>Username:</strong> ' + userId +
+            '</p>' +
+            '<p>' +
+                '<strong>Name:</strong> ' + (!onlineUsers[userId].RealName ? '<em>Unspecified</em>' : onlineUsers[userId].RealName) +
+            '</p>' +
+            '<p>' +
+                '<strong>Age:</strong> ' + (onlineUsers[userId].Age < 18 ? '<em>Unspecified</em>' : onlineUsers[userId].Age) +
+            '</p>' +
+            (onlineUsers[messengerTargetUserId].Gender == 1
+            ? ('<p>' +
+                '<strong>Country:</strong> ' + (!onlineUsers[userId].Country ? '<em>Unspecified</em>' : onlineUsers[userId].Country) +
+            '</p>')
+            : ('<p>' +
+                '<strong>City:</strong> ' + (!onlineUsers[userId].City ? '<em>Unspecified</em>' : onlineUsers[userId].City) +
+            '</p>')) +
+            '<p class="last">' +
+                '<strong>Occupation:</strong> ' + (!onlineUsers[userId].Occupation ? '<em>Unspecified</em>' : onlineUsers[userId].Occupation) +
+            '</p>' +
+        '</div>';
+
+    if ($memberProfile.length) {
+        $memberProfile.replaceWith(template);
+    } else {
+        $('#tabs-inner').prepend(template);
+    }
+
+    updateLayout();
 }
 
 function broadcastVideo(enable) {
@@ -327,15 +401,19 @@ function broadcastVideo(enable) {
                 var alreadyOpened;
 
                 if (messengerMode) {
-                    alreadyOpened = !$('#divCurrentUserVideo').is(':empty');
+                    alreadyOpened = $('#divCurrentUserVideo').find('.broadcast-video').length;
 
                     if (!alreadyOpened) {
                         var videoWindow = $('#broadcastVideoWindowTemplate').jqote({ Guid: currentVideoBroadcastGuid, FlashMediaServer: flashMediaServer, BroadcastVideoWidth: broadcastVideoWidth, BroadcastVideoHeight: broadcastVideoHeight });
                         $('#divCurrentUserVideo').append(videoWindow);
 
                         $('#divCurrentUserVideo').css("background-image", "");
-                        $('#divCurrentUserVideo').css("background-color", "black");
+                        $('#divCurrentUserVideo').css("background-color", "white");
 
+                        // show the video thing if they've hidden it already
+                        if (!uba.isVideoBroadcastVisible()) {
+                            $('.toggle-broadcast-video').click();
+                        }
 
                         if (onlineUsers[userId] != undefined)
                             onlineUsers[userId].Guid = currentVideoBroadcastGuid;
@@ -377,10 +455,13 @@ function broadcastVideo(enable) {
         var alreadyOpened;
 
         if (messengerMode) {
-            alreadyOpened = !$('#divCurrentUserVideo').is(':empty');
-            $('#divCurrentUserVideo').empty();
+            var $broadcastVideo = $('#divCurrentUserVideo').find('.broadcast-video');
+            alreadyOpened = $broadcastVideo.length;
+            if (alreadyOpened) {
+                $broadcastVideo.remove();
+            }
             $('#divCurrentUserVideo').css("background-image", "url(" + onlineUsers[userId].PhotoUrl + ")");
-            $('#divCurrentUserVideo').css("background-color", "#ccc");
+            $('#divCurrentUserVideo').css("background-color", "#F4EBE4");
         } else {
             alreadyOpened = $('#divBroadcastVideo').length != 0;
 
@@ -420,7 +501,7 @@ function receiveVideo(senderUserId, guid) {
             $('#divTargetUserVideo').append(videoWindow);
 
             $('#divTargetUserVideo').css("background-image", "");
-            $('#divTargetUserVideo').css("background-color", "black");
+            $('#divTargetUserVideo').css("background-color", "white");
         }
     } else {
         var alreadyOpened = $('#divReceiveVideo' + senderUserId).length != 0;
@@ -451,7 +532,7 @@ function closeVideoReceiver(senderUserId) {
         if (onlineUsers[messengerTargetUserId] != undefined) {
             $('#divTargetUserVideo').empty();
             $('#divTargetUserVideo').css("background-image", "url(" + onlineUsers[messengerTargetUserId].PhotoUrl + ")");
-            $('#divTargetUserVideo').css("background-color", "#ccc");
+            $('#divTargetUserVideo').css("background-color", "#F4EBE4");
         }
     } else {
         $('#divReceiveVideo' + senderUserId).dialog('destroy');
@@ -604,12 +685,19 @@ function getEventsSuccess(result) {
             }
             break;
         case 4: // User joined
-            if (!initialEventLoad)
+            if (!initialEventLoad) {
                 outputSystemMessage(result.Messages[i].Content);
+
+                uba.UserConnected();
+
+                imUserCanSendMessages = true;
+            }
             break;
         case 5: // User left
-            if (!initialEventLoad)
+            if (!initialEventLoad) {
                 outputSystemMessage(result.Messages[i].Content);
+                uba.UserDisconnected();
+            }
             break;
         case 6: // Send file
         case 7: // Send image file
@@ -658,6 +746,8 @@ function getEventsSuccess(result) {
             var user = result.UsersJoined[i];
             onlineUsers[user.Id] = user;
             updateOnlineUsers();
+
+            loadUserProfile(user.Id);
         }
         for (var i = 0; i < result.UsersLeft.length; i++) {
             var user = result.UsersLeft[i];
@@ -733,15 +823,23 @@ function outputUserMessage(message) {
 
     //if text message
     if (message.MessageType == 2) {
-        var formatting = formatOptionsToString(message.FormatOptions);
+        var formatting = formatOptionsToString(message.FormatOptions),
+            messageContent = message.Content;
+        
+        if (currentUser.Gender == 2 && userId != message.FromUserId) {
+            translateMessage(messageContent, true, function (result) {
+                if (typeof result == 'string' || result instanceof String) {
+                    result = $.parseJSON(result);
+                }
 
-        messagePanel.append(
-            $('#userMessageTemplate').jqote({
-                ThumbnailUrl: user.ThumbnailUrl,
-                DisplayName: user.DisplayName,
-                Message: $().emoticon(message.Content),
-                FormatOptions: formatting
-            }));
+                if (result.data.translations.length > 0)
+                    messageContent += ' [' + result.data.translations[0].translatedText + ']';
+                
+                renderUserMessage(messagePanel, user, messageContent, formatting);
+            });
+        } else {
+            renderUserMessage(messagePanel, user, messageContent, formatting);
+        }
     }
     
         //if generic file or image file
@@ -770,6 +868,25 @@ function outputUserMessage(message) {
     scrollToBottom();
 }
 
+function renderUserMessage(messagePanel, user, messageContent, formattingOptions) {
+    messagePanel.append(
+            $('#userMessageTemplate').jqote({
+                ThumbnailUrl: user.ThumbnailUrl,
+                DisplayName: user.DisplayName,
+                Message: $(document).emoticon(filterMessage(messageContent)),
+                FormatOptions: formattingOptions
+            }));
+}
+
+function filterMessage(messageContent) {
+    // filter email addresses
+    var filteredMessage = messageContent.replace(/\b([^\s]+@[^\s]+)\b/g, '***********');
+    filteredMessage = filteredMessage.replace(/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/, '***********');
+    filteredMessage = filteredMessage.replace(/\b(facebook|skype)\b/g, '***********');
+
+    return filteredMessage;
+}
+
 function scrollToBottom() {
     activePanel.scrollTop(activePanel.prop("scrollHeight"));
 }
@@ -782,7 +899,22 @@ function blinkPanelTab(messagePanel) {
     $('a[href$="#' + messagePanel.attr('id') + '"]').parent().blink();
 }
 
-function sendMessage() {
+function translateMessage(message, recipientIsLady, callback) {
+    // translate the message
+    $.ajax({
+        type: 'GET',
+        url: 'https://www.googleapis.com/language/translate/v2',
+        data: {
+            key: 'AIzaSyB_trkMDRsbag44cGKN2aw8Hf1SpGyvVfo',
+            source: recipientIsLady ? 'en' : 'ru',
+            target: recipientIsLady ? 'ru' : 'en',
+            q: message
+        },
+        success: callback
+    });
+}
+
+function sendMessageClicked() {
     if (messengerMode && !imUserCanSendMessages)
         return;
 
@@ -790,6 +922,23 @@ function sendMessage() {
     $('#messageInput').val('');
     if (message == '') return;
 
+    if (currentUser.Gender == 2 && $('#translateMessages').is(':checked')) {
+        translateMessage(message, false, function (result) {
+            if (typeof result == 'string' || result instanceof String) {
+                result = $.parseJSON(result);
+            }
+
+            if (result.data.translations.length > 0)
+                message += ' [' + result.data.translations[0].translatedText + ']';
+
+            sendMessage(message);
+        });
+    } else {
+        sendMessage(message);
+    }
+}
+
+function sendMessage(message) {
     var toUserId = getTargetUserId();
 
     // Get formatting options
@@ -876,7 +1025,7 @@ function getPanelForMessage(message) {
 
         return messagePanel;
     } else {
-        return getPanelByUserId(messengerTargetUserId);
+        return getPanelByUserId(messengerTargetUserId.replace(/\s/g, '_'));
     }
 }
 
@@ -935,7 +1084,8 @@ $.htmlDecode = function(value) { return $('<div/>').html(value).text(); };
 
 //called by DetectWebcam.swf
 
-function WebcamDetected(webcamdetected) {
+function WebcamDetected(detected) {
+    webcamdetected = detected;
     if (!videoChatEnabled || !webcamdetected) {
         $("#videoBroadcastButtonContainer").hide();
     } else {

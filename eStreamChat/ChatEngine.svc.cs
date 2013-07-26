@@ -25,6 +25,8 @@ using eStreamChat.Interfaces;
 using System.Net;
 using System.Collections.Generic;
 using Microsoft.Practices.Unity;
+using UBA.Models.Repository;
+using UBA.Models.Enums;
 
 namespace eStreamChat
 {
@@ -39,6 +41,7 @@ namespace eStreamChat
         private static IMessengerPresenceProvider messengerProvider;
 
         private static bool importsSatisfied = false;
+        private DataRepository dataRepository = new DataRepository();
 
         public ChatEngine()
         {
@@ -173,26 +176,29 @@ namespace eStreamChat
                 {
                     var targetUser = chatUserProvider.GetUser(targetUserId);
 
-                    //Not sure that MessengerUrl should be constructed here?! timestamp and hash are tied to
-                    //the implementation
-                    var timestamp = DateTime.Now.ToFileTimeUtc();
-                    var hash = Miscellaneous.CalculateChatAuthHash(targetUserId, user.Id, timestamp.ToString());
+                    if (!chatRoomStorage.IsUserInRoom(chatRoomId, targetUserId))
+                    {
+                        //Not sure that MessengerUrl should be constructed here?! timestamp and hash are tied to
+                        //the implementation
+                        var timestamp = DateTime.Now.ToFileTimeUtc();
+                        var hash = Miscellaneous.CalculateChatAuthHash(targetUserId, user.Id, timestamp.ToString());
 
-                    var request = new ChatRequest
-                                      {
-                                          FromThumbnailUrl = user.ThumbnailUrl,
-                                          FromProfileUrl = user.ProfileUrl,
-                                          FromUserId = user.Id,
-                                          FromUsername = user.DisplayName,
-                                          ToUserId = targetUserId,
-                                          ToUsername = targetUser.DisplayName,
-                                          MessengerUrl =
-                                              String.Format("{0}?init=0&id={1}&target={2}&timestamp={3}&hash={4}",
-                                                            url.GetLeftPart(UriPartial.Path), targetUserId, user.Id,
-                                                            timestamp, hash)
-                                      };
+                        var request = new ChatRequest
+                                        {
+                                            FromThumbnailUrl = user.ThumbnailUrl,
+                                            FromProfileUrl = user.ProfileUrl,
+                                            FromUserId = user.Id,
+                                            FromUsername = user.DisplayName,
+                                            ToUserId = targetUserId,
+                                            ToUsername = targetUser.DisplayName,
+                                            MessengerUrl =
+                                                String.Format("{0}?init=0&id={1}&target={2}&timestamp={3}&hash={4}&gender={5}&realName={6}&age={7}&country={8}&city={9}&occupation={10}&thumbUrl={11}&photoUrl={12}",
+                                                                url.GetLeftPart(UriPartial.Path), targetUserId, user.Id,
+                                                                timestamp, hash, targetUser.Gender, targetUser.RealName, targetUser.Age, targetUser.Country, targetUser.City, targetUser.Occupation, targetUser.ThumbnailUrl, targetUser.PhotoUrl)
+                                        };
 
-                    messengerProvider.AddChatRequest(request);
+                        messengerProvider.AddChatRequest(request);
+                    }
                 }
                 catch (System.Security.SecurityException) { }
             }
@@ -202,7 +208,7 @@ namespace eStreamChat
             result.ChatRoomTopic = room.Topic;
             result.Users = chatRoomStorage.GetUsersInRoom(room.Id).Select(chatUserProvider.GetUser).ToArray();
             result.Token = chatRoomStorage.GenerateUserToken(user.Id);
-            result.UserId = user.Id;
+            result.CurrentUser = user;
             result.IsAdmin = chatUserProvider.IsChatAdmin(user.Id, room.Id);
 
             StopVideoBroadcast(user.Id, room.Id);
@@ -260,6 +266,9 @@ namespace eStreamChat
             if (messengerTargetUserId != null)
             {
                 messages = messages.Where(m => m.FromUserId == userId || m.FromUserId == messengerTargetUserId);
+
+                // log this chat minute and subtract credits
+                LogChatMinute(chatRoomId, userId, messengerTargetUserId);
             }
 
             //get only joined, left and kicked messages for ignored users
@@ -469,7 +478,7 @@ namespace eStreamChat
             public string Error;
             public string RedirectUrl;
             public string Token;
-            public string UserId;
+            public User CurrentUser;
             public User[] Users;
             public bool IsAdmin;
             public bool FileTransferEnabled;
@@ -488,5 +497,66 @@ namespace eStreamChat
         }
 
         #endregion
-    }
+
+		#region Ukraine brides agency logic
+
+		[OperationContract]
+		public decimal? GetCreditsRemaining(string[] usernames)
+		{
+			foreach (var username in usernames)
+			{
+				UBA.Models.Member member = dataRepository.Members.GetMemberByUsername(username);
+				if (member.gender == Gender.Male)
+				{
+					return member.total_credits;
+				}
+			}
+
+			return null;
+		}
+
+		private void LogChatMinute(string chatRoomId, string userId, string messengerTargetUserId)
+		{
+			//log that these two are chatting
+			decimal costOfOneMinuteChatting = dataRepository.Prices.GetItemCreditCost(CommissionType.LiveChatMinute);
+
+			// only add minute if both users are in the room
+			// TODO: come up with a better way to do this as currently this is not definate. All messenger conversations take place in 
+			//		 a single chat room, thus a user could potentially be in a different messenger conversation and return true here
+			if (!chatRoomStorage.IsUserInRoom(chatRoomId, userId) || !chatRoomStorage.IsUserInRoom(chatRoomId, messengerTargetUserId))
+				return;
+
+			//guess the sexes of the two chatees and verify later
+			UBA.Models.Member
+				member1 = dataRepository.Members.GetMemberByUsername(userId),
+				member2 = dataRepository.Members.GetMemberByUsername(messengerTargetUserId);
+
+			if (member1 == null || member2 == null)
+				throw new Exception("Could not find user");
+
+			// find out who is the man and who is the lady
+			UBA.Models.Member
+				man = member1.gender == Gender.Male ? member1 : member2,
+				lady = member1.gender == Gender.Female ? member1 : member2;
+
+			// see if it has been 1 minute since the last minute was added
+			UBA.Models.ChatMinute lastChatMinute = dataRepository.ChatMinutes.GetLastChatMinute(man.user_id, lady.user_id);
+			DateTime now = DateTime.UtcNow;
+
+			// only add the chat minute if it has been at least 1 minute since the last minute was added
+			if (man.total_credits > 0 && (lastChatMinute == null || now.Subtract(lastChatMinute.Date) > TimeSpan.FromMinutes(1)))
+			{
+				// subtract the credit from the man's account
+				decimal creditsPaid = 0;
+				man.Purchase(costOfOneMinuteChatting, out creditsPaid);
+
+				// add the minute chatted for the agency statistics
+				UBA.Models.ChatMinute minute = new UBA.Models.ChatMinute(man.user_id, lady.user_id, now, creditsPaid, costOfOneMinuteChatting);
+				dataRepository.ChatMinutes.Add(minute);
+				dataRepository.ChatMinutes.Save();
+			}
+		}
+
+		#endregion
+	}
 }

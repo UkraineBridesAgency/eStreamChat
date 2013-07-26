@@ -23,6 +23,8 @@ using System.Web;
 using System.Web.Security;
 using eStreamChat.Interfaces;
 using System.Collections.Generic;
+using UBA.Models.Enums;
+using UBA.Toolkit;
 
 namespace eStreamChat.Classes
 {
@@ -82,14 +84,65 @@ namespace eStreamChat.Classes
                 // Create user object
                 var user = new User {DisplayName = hrefParams["name"] ?? hrefParams["id"] ?? "guest_" + Rand.Next(1000)};
                 user.Id = hrefParams["id"] ?? Regex.Replace(user.DisplayName, "[\\{\\}\\'\\\"]", String.Empty);
-                user.ThumbnailUrl =
-                    hrefParams["thumbUrl"] ??
-                    (string.Format("http://www.gravatar.com/avatar/{0}.jpg?s=30&d=monsterid",
-                                   FormsAuthentication.HashPasswordForStoringInConfigFile(user.Id, "md5")).ToLower());
-                user.PhotoUrl =
-                    hrefParams["photoUrl"] ??
-                    (string.Format("http://www.gravatar.com/avatar/{0}.jpg?s=256&d=monsterid",
-                                   FormsAuthentication.HashPasswordForStoringInConfigFile(user.Id, "md5")).ToLower());
+                
+                // set extra use fields
+                Gender gender = (int) Gender.Unselected;
+                int age;
+                Gender.TryParse(hrefParams["gender"], out gender);
+                int.TryParse(hrefParams["age"], out age);
+
+                user.Gender = (int)gender;
+                user.RealName = hrefParams["realName"].ToString();
+                user.Age = age;
+                user.Country = hrefParams["country"].ToString();
+                user.City = hrefParams["city"].ToString();
+                user.Occupation = hrefParams["occupation"].ToString();
+
+                string maleDefaultImage = "http://www.ukrainebridesagency.com/Images/Site/MaleDefaultPhoto.png";
+                string femaleDefaultImage = "http://www.ukrainebridesagency.com/Images/Site/FemaleDefaultPhoto.png";
+
+                // set user thumbnail
+                if (hrefParams["thumbUrl"] != null)
+                {
+                    user.ThumbnailUrl = hrefParams["thumbUrl"];
+                }
+                else
+                {
+                    switch (user.Gender)
+                    {
+                        case (int)Gender.Male:
+                            user.ThumbnailUrl = maleDefaultImage;
+                            break;
+                        case (int)Gender.Female:
+                            user.ThumbnailUrl = femaleDefaultImage;
+                            break;
+                        default:
+                            user.ThumbnailUrl = String.Empty;
+                            break;
+                    }
+                }
+
+                // set user large photo
+                if (hrefParams["photoUrl"] != null)
+                {
+                    user.PhotoUrl = hrefParams["photoUrl"];
+                }
+                else
+                {
+                    switch (user.Gender)
+                    {
+                        case (int)Gender.Male:
+                            user.PhotoUrl = maleDefaultImage;
+                            break;
+                        case (int)Gender.Female:
+                            user.PhotoUrl = femaleDefaultImage;
+                            break;
+                        default:
+                            user.PhotoUrl = String.Empty;
+                            break;
+                    }
+                }
+
                 cacheProvider.Set("RemoteAuthUserProvider_" + user.Id, user);
                 return user;
             }
