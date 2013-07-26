@@ -293,3 +293,26 @@ $.fn.emoticon = function (theText) {
     }
     return newText;
 };
+
+createEmoticonList = function (context) {
+    var html = '<select id="emoticon-list" class="ui-button ui-widget ui-state-default ui-corner-right">',
+        imagePath = 'Emoticons/',
+        emoticon,
+        firstTextRepresentation;
+    for (var emoticonName in emoticons.emoticon) {
+        if (emoticons.emoticon.hasOwnProperty(emoticonName)) {
+            emoticon = emoticons.emoticon[emoticonName];
+            // get first text representation of this emoticon
+            for (var textRep in emoticon.emotes) {
+                if (emoticon.emotes.hasOwnProperty(textRep) && typeof (textRep) !== 'function') {
+                    firstTextRepresentation = textRep;
+                    break;
+                }
+            }
+            html += '<option value="' + firstTextRepresentation + '" title="' + imagePath + emoticon.image + '">' + firstTextRepresentation + '</option>';
+        }
+    }
+    html += '</select>'
+
+    $(context).prepend(html);
+}
