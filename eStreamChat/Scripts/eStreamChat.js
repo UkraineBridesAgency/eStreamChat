@@ -140,11 +140,12 @@ $(function () {
         }
 
         // Set default active tab
-        if (!messengerMode)
+        if (!messengerMode) {
             activePanel = $('#panel-room');
-        else {
-            $('#panel-room').attr('id', 'panel-' + messengerTargetUserId.replace(/\s/g, '_'));
-            activePanel = $('#panel-' + messengerTargetUserId.replace(/\s/g, '_'));
+        } else {
+            // replace non-alphanumeric characters in the userid
+            $('#panel-room').attr('id', 'panel-' + messengerTargetUserId.replace(/[^\w]/g, '_'));
+            activePanel = $('#panel-' + messengerTargetUserId.replace(/[^\w]/g, '_'));
         }
 
         // Prepare the text formatting buttons
@@ -1025,15 +1026,17 @@ function getPanelForMessage(message) {
 
         return messagePanel;
     } else {
-        return getPanelByUserId(messengerTargetUserId.replace(/\s/g, '_'));
+        return getPanelByUserId(messengerTargetUserId);
     }
 }
 
 function getPanelByUserId(userId) {
-    if (userId == null)
+    if (userId == null) {
         return $('#panel-room');
-    else
-        return $('#panel-' + userId);
+    } else {
+        // replace non-alphanumeric characters in the userid
+        return $('#panel-' + userId.replace(/[^\w]/g, '_'));
+    }
 }
 
 $.fn.setCursorPosition = function(pos) {
